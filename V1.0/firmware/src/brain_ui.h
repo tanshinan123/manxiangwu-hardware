@@ -22,10 +22,8 @@ typedef enum {
     BRAIN_UI_EVENT_TIME_UP,
     /* The user picked a break on the hardware. detail: water/move/sleep/return. */
     BRAIN_UI_EVENT_BREAK_ACTION,
-    /* Reflection page: extend this session. The phone answers with FOCUS_EXTEND. */
-    BRAIN_UI_EVENT_EXTEND_REQUEST,
-    /* Reflection page: finish now. The phone answers with BREAK_MENU. */
-    BRAIN_UI_EVENT_KEEP_REQUEST,
+    /* Wardrobe selection. detail: sleep/love/dizzy/hurt/cool/study/sport. */
+    BRAIN_UI_EVENT_SKIN_SET_REQUEST,
 } brain_ui_event_t;
 
 typedef void (*brain_ui_action_cb_t)(brain_ui_event_t event, const char *detail, void *user_data);
@@ -49,11 +47,15 @@ bool brain_ui_is_realtime(void);
 bool brain_ui_is_session_page(void);
 void brain_ui_show_realtime(void);
 void brain_ui_start_focus(uint32_t duration_seconds);
-void brain_ui_extend_focus(uint32_t duration_seconds);
 void brain_ui_end_focus(uint8_t latest_brain_score);
-void brain_ui_show_due(void);
 void brain_ui_show_break_menu(void);
 void brain_ui_show_break(brain_ui_break_t type);
+
+/* App-owned collection snapshots. Skins and monologues page every entry and
+ * use a lock badge for the rest; insights page only what the App sent. */
+void brain_ui_set_skins(uint8_t unlocked_mask, const char *wearing);
+void brain_ui_set_postcard(uint8_t index, bool present, const char *title, const char *line, uint8_t image_index);
+void brain_ui_set_insight(uint8_t index, bool present, const char *title, const char *body);
 
 #ifdef __cplusplus
 }

@@ -12,7 +12,8 @@
 | 备份副本 | `~/Projects/brain_companion_v20_collections_ui.bin` |
 | 烧录记录 | Write flash success → CRC check success → Reboot done |
 
-> ⚠️ 本仓库 `V1.0/firmware/` 是历史快照镜像，界面与协议逐条细节**以 TuyaOpen 工程内源码为准**。本文描述的是后者。
+> ✅ 本仓库 `V1.0/firmware/` 已与本文对应的烧录版源码同步（2026-11-11）。文中每个常量、页面坐标、协议字段都可直接在 `V1.0/firmware/src/` 核对。
+> 固件源码的权威工程仍在 TuyaOpen 的 `apps/brain_companion/`，两者内容一致。
 
 ---
 
@@ -531,6 +532,7 @@ shasum -a 256 .build/bin/brain_companion_QIO_1.0.0.bin
 | 2026-11-07 | v1.1 | 第二主流程：换装/独白/动态；修 NimBLE mbuf 池崩溃；换装可逆 + KV |
 | 2026-11-08 | v1.2 | 提前结束去确认页；到点语音换词；皮肤/独白/成就改名；独白换 4 张设计图；5 按钮图标↔文字；脑子统一 236 并重采样省 236 KB |
 | 2026-11-11 | v1.2-doc | 本文档；App 侧补发洞察正文与锁定独白标题 |
+| 2026-11-11 | v1.2-sync | 仓库 `V1.0/firmware/` 源码镜像整体同步到烧录版；README 与实现对齐；补入 `brain_voice.c`、独白图、字库生成与校验脚本、字体 TTF 与语音 WAV 源 |
 
 ---
 

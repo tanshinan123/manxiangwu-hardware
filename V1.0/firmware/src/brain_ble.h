@@ -25,6 +25,14 @@ typedef struct {
     uint8_t brain_score;      /* 0xFF when absent */
     uint32_t seconds;         /* remaining span for FOCUS_*, 0 when absent */
     const char *break_type;   /* BREAK_ACTION detail, NULL otherwise */
+    uint8_t skin_mask;        /* STATE_SYNC/APP_LAUNCH unlocked Skin bitmask */
+    const char *wearing;      /* Current Skin raw value, NULL for none */
+    const char *content_kind; /* CONTENT_SYNC: postcard / insight */
+    int content_index;
+    bool content_present;
+    const char *title;
+    const char *text;
+    int image_index;       /* CONTENT_SYNC postcard: brain image 0..13, -1 absent */
 } brain_ble_frame_t;
 
 typedef void (*brain_ble_frame_cb_t)(const brain_ble_frame_t *frame);

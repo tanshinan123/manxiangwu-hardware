@@ -165,7 +165,7 @@ static void brain_send_ack_frame(const char *ack_event_id, uint8_t status, uint8
     snprintf(buf, sizeof(buf),
              "{\"protocolVersion\":%d,\"eventType\":\"STATE_ACK\",\"sessionID\":\"%s\","
              "\"timestamp\":%ld,\"payload\":{\"ackEventID\":\"%s\",\"status\":%u,"
-             "\"brainScore\":%u}}",
+             "\"brainScore\":%u,\"capabilities\":[\"CONTENT_SYNC\",\"SKIN_SET\"]}}",
              BRAIN_PROTO_VERSION, g_session_id, (long)tal_time_get_posix(), id,
              (unsigned)status, (unsigned)score);
     brain_notify_bytes((const uint8_t *)buf, (uint16_t)strlen(buf));
@@ -212,11 +212,21 @@ static int json_int(const cJSON *root, const char *key, int fallback)
     return cJSON_IsNumber(item) ? item->valueint : fallback;
 }
 
+/* JSONSerialization emits Swift Bool as `true`/`false`, not 1/0. */
+static bool json_bool(const cJSON *root, const char *key, bool fallback)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (cJSON_IsBool(item)) return cJSON_IsTrue(item);
+    if (cJSON_IsNumber(item)) return item->valueint != 0;
+    return fallback;
+}
+
 /* Returns false when the buffer is not a JSON frame, so the caller can fall
  * back to the one-byte debug write path. */
 static bool brain_dispatch_json(const uint8_t *data, uint16_t len)
 {
-    char body[240];
+    /* One complete UTF-8 content frame, including envelope and NUL. */
+    char body[384];
     cJSON *root;
     const cJSON *payload;
     brain_ble_frame_t frame;
@@ -292,12 +302,25 @@ static bool brain_dispatch_json(const uint8_t *data, uint16_t len)
     frame.brain_score = (score >= 0 && score <= 100) ? (uint8_t)score : 0xFF;
     frame.seconds = (uint32_t)(seconds > 0 ? seconds : 0);
     frame.break_type = payload != NULL ? json_str(payload, "breakType") : NULL;
+    frame.skin_mask = payload != NULL ? (uint8_t)(json_int(payload, "unlockedSkinMask", 0) & 0xFF) : 0;
+    frame.wearing = payload != NULL ? json_str(payload, "wearingSkin") : NULL;
+    frame.content_kind = payload != NULL ? json_str(payload, "contentKind") : NULL;
+    frame.content_index = payload != NULL ? json_int(payload, "index", -1) : -1;
+    frame.content_present = payload != NULL && json_bool(payload, "present", false);
+    frame.title = payload != NULL ? json_str(payload, "title") : NULL;
+    frame.text = payload != NULL ? json_str(payload, "text") : NULL;
+    frame.image_index = payload != NULL ? json_int(payload, "img", -1) : -1;
 
     PR_NOTICE("[brain_ble] %s score=%d seconds=%u", type, score, frame.seconds);
     if (g_frame_cb != NULL) {
         g_frame_cb(&frame);
     }
-    brain_send_ack_frame(event_id, BRAIN_BLE_ACK_OK, g_state_score);
+    /* Content is fire-and-forget and arrives in bursts. An ACK per frame doubled
+     * the HCI traffic and once exhausted the 13-buffer ACL pool, resetting the
+     * whole application. Keep ACKs for state-bearing commands instead. */
+    if (strcmp(type, "CONTENT_SYNC") != 0) {
+        brain_send_ack_frame(event_id, BRAIN_BLE_ACK_OK, g_state_score);
+    }
     cJSON_Delete(root);
     return true;
 }
@@ -366,7 +389,7 @@ static int brain_write_access(uint16_t conn_handle, uint16_t attr_handle,
 {
     uint8_t state_index;
     uint8_t score = 0xFF;
-    uint8_t frame[240];
+    uint8_t frame[384];
     uint16_t plen;
     int rc;
 

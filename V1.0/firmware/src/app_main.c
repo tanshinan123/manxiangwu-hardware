@@ -12,6 +12,7 @@
 
 #include "brain_ui.h"
 #include "brain_ble.h"
+#include "brain_voice.h"
 
 #define BRAIN_BRIGHTNESS 80
 
@@ -37,11 +38,8 @@ static void on_ble_link(bool connected)
 {
     lv_vendor_disp_lock();
     brain_ui_set_offline_demo(!connected);
-    /* Only refresh the idle page: rebuilding here would kick the user out of
-     * the demo page or reset a running countdown for a hint-text change. */
-    if (brain_ui_is_realtime()) {
-        brain_ui_show_realtime();
-    }
+    /* Link changes only update the hint and local shortcut. Rebuilding the
+     * realtime screen here deletes every LVGL object and causes a visible flash. */
     lv_vendor_disp_unlock();
 
     PR_NOTICE("[brain] phone link %s: offline demo %s",
@@ -72,12 +70,19 @@ static void on_ble_frame(const brain_ble_frame_t *frame)
     lv_vendor_disp_lock();
 
     if (strcmp(frame->type, "APP_LAUNCH") == 0 || strcmp(frame->type, "STATE_SYNC") == 0) {
+        PR_NOTICE("[brain] sync skins=0x%02X wearing=%s", frame->skin_mask,
+                  frame->wearing == NULL ? "-" : frame->wearing);
+        brain_ui_set_skins(frame->skin_mask, frame->wearing);
         if (frame->brain_score != 0xFF) {
             brain_ui_set_brain_score(frame->brain_score);
             brain_ble_note_score(frame->brain_score);
         }
         /* Phone says "idle": drop any session page, but never yank the demo. */
-        if (brain_ui_is_session_page()) {
+        if (frame->seconds > 0) {
+            /* STATE_SYNC while a session runs (reconnect / relaunch): resume
+             * the countdown with the phone-reported remaining time. */
+            brain_ui_start_focus(frame->seconds);
+        } else if (brain_ui_is_session_page()) {
             brain_ui_show_realtime();
         }
     } else if (strcmp(frame->type, "REFLECT_DONE") == 0) {
@@ -94,16 +99,26 @@ static void on_ble_frame(const brain_ble_frame_t *frame)
         if (frame->seconds > 0) {
             brain_ui_start_focus(frame->seconds);
         }
-    } else if (strcmp(frame->type, "FOCUS_EXTEND") == 0) {
-        if (frame->seconds > 0) {
-            brain_ui_extend_focus(frame->seconds);
-        }
     } else if (strcmp(frame->type, "FOCUS_END") == 0) {
         brain_ui_end_focus(frame->brain_score == 0xFF ? 80 : frame->brain_score);
     } else if (strcmp(frame->type, "BREAK_MENU") == 0) {
         brain_ui_show_break_menu();
     } else if (strcmp(frame->type, "BREAK_ACTION") == 0) {
         brain_ui_show_break(break_from(frame->break_type));
+    } else if (strcmp(frame->type, "CONTENT_SYNC") == 0 && frame->content_kind != NULL) {
+        if (strcmp(frame->content_kind, "postcard") == 0 && frame->content_index >= 0) {
+            PR_NOTICE("[brain] postcard[%d] present=%d title=%s", frame->content_index,
+                      frame->content_present, frame->title == NULL ? "-" : frame->title);
+            brain_ui_set_postcard((uint8_t)frame->content_index, frame->content_present,
+                                  frame->title, frame->text, (uint8_t)frame->image_index);
+        } else if (strcmp(frame->content_kind, "insight") == 0 && frame->content_index >= 0) {
+            PR_NOTICE("[brain] insight[%d] present=%d title=%s", frame->content_index,
+                      frame->content_present, frame->title == NULL ? "-" : frame->title);
+            /* The achievement page shows both the headline and the body, so the
+             * same "text" field that carries a monologue line carries it here. */
+            brain_ui_set_insight((uint8_t)frame->content_index, frame->content_present,
+                                 frame->title, frame->text);
+        }
     }
 
     lv_vendor_disp_unlock();
@@ -126,13 +141,9 @@ static void on_ui_event(brain_ui_event_t event, const char *detail, void *user_d
         PR_NOTICE("[brain] ui BREAK_ACTION=%s", detail == NULL ? "-" : detail);
         brain_ble_emit("BREAK_ACTION", detail);
         break;
-    case BRAIN_UI_EVENT_EXTEND_REQUEST:
-        PR_NOTICE("[brain] ui EXTEND_REQUEST");
-        brain_ble_emit("EXTEND_REQUEST", NULL);
-        break;
-    case BRAIN_UI_EVENT_KEEP_REQUEST:
-        PR_NOTICE("[brain] ui KEEP_REQUEST");
-        brain_ble_emit("KEEP_REQUEST", NULL);
+    case BRAIN_UI_EVENT_SKIN_SET_REQUEST:
+        PR_NOTICE("[brain] ui SKIN_SET_REQUEST=%s", detail == NULL ? "-" : detail);
+        brain_ble_emit("SKIN_SET_REQUEST", detail);
         break;
     default:
         break;
@@ -142,6 +153,10 @@ static void on_ui_event(brain_ui_event_t event, const char *detail, void *user_d
 void user_main(void)
 {
     tal_log_init(TAL_LOG_LEVEL_DEBUG, 4096, (TAL_LOG_OUTPUT_CB)tkl_log_output);
+    tal_kv_init(&(tal_kv_cfg_t){
+        .seed = "vmlkasdh93dlvlcy",
+        .key = "dflfuap134ddlduq",
+    });
     tal_sw_timer_init();
     OPERATE_RET ret = tal_workq_init();
     if (ret != OPRT_OK) {
@@ -151,6 +166,7 @@ void user_main(void)
 
     PR_NOTICE("[brain] project=%s version=%s", PROJECT_NAME, PROJECT_VERSION);
     board_register_hardware();
+    (void)brain_voice_init();
     lv_vendor_init(DISPLAY_NAME);
 
     TDL_DISP_HANDLE_T display = tdl_disp_find_dev(DISPLAY_NAME);
